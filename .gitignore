@@ -1,0 +1,17 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.secret.yaml
+
+# Node.js
+node_modules/
+coverage/
+npm-debug.log*
+
+# Generated files
+.DS_Store
+
+# Kubernetes credentials
+k8s/base/secret.yaml

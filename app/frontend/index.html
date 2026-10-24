@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Task Manager</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #f4f6fb;
+        color: #202638;
+      }
+
+      main {
+        max-width: 760px;
+        margin: 50px auto;
+        padding: 24px;
+      }
+
+      h1 {
+        margin-bottom: 8px;
+      }
+      .subtitle {
+        color: #687086;
+        margin-bottom: 28px;
+      }
+
+      form,
+      .task {
+        background: white;
+        border: 1px solid #e2e6ef;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 16px;
+      }
+
+      input,
+      textarea,
+      button {
+        font: inherit;
+        padding: 11px;
+        border-radius: 7px;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid #cbd2e1;
+        margin-bottom: 12px;
+      }
+
+      textarea {
+        resize: vertical;
+      }
+
+      button {
+        border: 0;
+        cursor: pointer;
+        background: #3157d5;
+        color: white;
+      }
+
+      button.secondary {
+        background: #647087;
+      }
+      button.danger {
+        background: #b83242;
+      }
+
+      .task-title {
+        font-weight: 650;
+      }
+      .task-description {
+        color: #687086;
+        white-space: pre-wrap;
+      }
+      .task.completed .task-title {
+        text-decoration: line-through;
+        color: #687086;
+      }
+      .task-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+      #message {
+        min-height: 24px;
+        color: #b83242;
+      }
+      .empty {
+        color: #687086;
+        text-align: center;
+        padding: 25px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Task Manager</h1>
+      <p class="subtitle">Organize your work, one task at a time.</p>
+
+      <form id="task-form">
+        <h2 id="form-heading">Create a task</h2>
+        <input id="title" maxlength="200" placeholder="Task title" required />
+        <textarea
+          id="description"
+          maxlength="2000"
+          rows="3"
+          placeholder="Description (optional)"
+        ></textarea>
+        <button type="submit" id="submit-button">Add task</button>
+        <button type="button" class="secondary" id="cancel-button" hidden>
+          Cancel edit
+        </button>
+      </form>
+
+      <p id="message" role="status" aria-live="polite"></p>
+      <h2>Your tasks</h2>
+      <section id="tasks" aria-live="polite">
+        <p class="empty">Loading tasks...</p>
+      </section>
+    </main>
+
+    <script>
+      const form = document.querySelector("#task-form");
+      const titleInput = document.querySelector("#title");
+      const descriptionInput = document.querySelector("#description");
+      const tasksContainer = document.querySelector("#tasks");
+      const message = document.querySelector("#message");
+      const formHeading = document.querySelector("#form-heading");
+      const submitButton = document.querySelector("#submit-button");
+      const cancelButton = document.querySelector("#cancel-button");
+
+      let editingTask = null;
+
+      async function request(url, options = {}) {
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...options.headers,
+          },
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || `Request failed (${response.status})`);
+        }
+
+        return response.status === 204 ? null : response.json();
+      }
+
+      function showMessage(text = "") {
+        message.textContent = text;
+      }
+
+      function makeButton(label, className, onClick) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        if (className) button.className = className;
+        button.addEventListener("click", onClick);
+        return button;
+      }
+
+      async function loadTasks() {
+        try {
+          const tasks = await request("/api/tasks");
+          tasksContainer.replaceChildren();
+
+          if (tasks.length === 0) {
+            const empty = document.createElement("p");
+            empty.className = "empty";
+            empty.textContent = "No tasks yet. Create your first task!";
+            tasksContainer.append(empty);
+            return;
+          }
+
+          for (const task of tasks) {
+            const article = document.createElement("article");
+            article.className = `task${task.completed ? " completed" : ""}`;
+
+            const title = document.createElement("div");
+            title.className = "task-title";
+            title.textContent = task.title;
+
+            const description = document.createElement("p");
+            description.className = "task-description";
+            description.textContent = task.description || "No description";
+
+            const status = document.createElement("p");
+            status.textContent = task.completed ? "Completed" : "In progress";
+
+            const actions = document.createElement("div");
+            actions.className = "task-actions";
+
+            actions.append(
+              makeButton(
+                task.completed ? "Mark active" : "Complete",
+                "",
+                async () => {
+                  try {
+                    await request(`/api/tasks/${task.id}`, {
+                      method: "PUT",
+                      body: JSON.stringify({
+                        title: task.title,
+                        description: task.description,
+                        completed: !task.completed,
+                      }),
+                    });
+                    showMessage();
+                    await loadTasks();
+                  } catch (error) {
+                    showMessage(error.message);
+                  }
+                },
+              ),
+              makeButton("Edit", "secondary", () => startEditing(task)),
+              makeButton("Delete", "danger", async () => {
+                if (!confirm(`Delete "${task.title}"?`)) return;
+                try {
+                  await request(`/api/tasks/${task.id}`, { method: "DELETE" });
+                  showMessage();
+                  await loadTasks();
+                } catch (error) {
+                  showMessage(error.message);
+                }
+              }),
+            );
+
+            article.append(title, description, status, actions);
+            tasksContainer.append(article);
+          }
+        } catch (error) {
+          tasksContainer.replaceChildren();
+          const errorText = document.createElement("p");
+          errorText.className = "empty";
+          errorText.textContent =
+            "Could not load tasks. Check the API and database.";
+          tasksContainer.append(errorText);
+          showMessage(error.message);
+        }
+      }
+
+      function startEditing(task) {
+        editingTask = task;
+        titleInput.value = task.title;
+        descriptionInput.value = task.description || "";
+        formHeading.textContent = "Edit task";
+        submitButton.textContent = "Save changes";
+        cancelButton.hidden = false;
+        titleInput.focus();
+      }
+
+      function resetForm() {
+        editingTask = null;
+        form.reset();
+        formHeading.textContent = "Create a task";
+        submitButton.textContent = "Add task";
+        cancelButton.hidden = true;
+      }
+
+      cancelButton.addEventListener("click", resetForm);
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        showMessage();
+
+        const body = {
+          title: titleInput.value.trim(),
+          description: descriptionInput.value.trim(),
+        };
+
+        try {
+          if (editingTask) {
+            await request(`/api/tasks/${editingTask.id}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                ...body,
+                completed: editingTask.completed,
+              }),
+            });
+            showMessage("Task updated successfully.");
+          } else {
+            await request("/api/tasks", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+            showMessage("Task created successfully.");
+          }
+
+          resetForm();
+          await loadTasks();
+        } catch (error) {
+          showMessage(error.message);
+        }
+      });
+
+      loadTasks();
+    </script>
+  </body>
+</html>
